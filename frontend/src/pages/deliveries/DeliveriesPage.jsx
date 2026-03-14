@@ -216,7 +216,7 @@ export default function DeliveriesPage() {
             <div className="space-y-2">
               {form.lines.map((line, i) => {
                 // Determine available products in this warehouse (qty > 0)
-                const availableProductIds = new Set(availableStock.filter(s => s.quantity > 0).map(s => s.product_id));
+                const availableProductIds = new Set(availableStock.filter(s => s.on_hand_qty > 0).map(s => s.product_id));
                 const selectableProducts = (products || []).filter(p => availableProductIds.has(p.id));
 
                 return (

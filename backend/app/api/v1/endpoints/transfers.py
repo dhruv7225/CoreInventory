@@ -17,13 +17,13 @@ from app.core.dependencies import get_current_user, require_staff_plus
 from app.models.auth import User
 from app.models.receipt import DocumentStatus
 from app.models.transfer import Transfer, TransferLine
-from app.schemas.schemas import DocumentOut, TransferCreate
+from app.schemas.schemas import DocumentOut, TransferCreate, TransferOut
 from app.services.inventory_service import InventoryService
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[DocumentOut])
+@router.get("/", response_model=list[TransferOut])
 async def list_transfers(
     status: str | None = None,
     skip: int = Query(0, ge=0),
@@ -31,7 +31,15 @@ async def list_transfers(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    q = select(Transfer).where(Transfer.is_deleted.is_(False))
+    q = (select(Transfer).where(Transfer.is_deleted.is_(False))
+         .options(
+             selectinload(Transfer.source_warehouse),
+             selectinload(Transfer.dest_warehouse),
+             selectinload(Transfer.lines).selectinload(TransferLine.product),
+             selectinload(Transfer.lines).selectinload(TransferLine.from_location),
+             selectinload(Transfer.lines).selectinload(TransferLine.to_location),
+             selectinload(Transfer.lines).selectinload(TransferLine.uom)
+         ))
     if status:
         q = q.where(Transfer.status == status)
     q = q.offset(skip).limit(limit).order_by(Transfer.created_at.desc())
@@ -64,10 +72,20 @@ async def create_transfer(
 
     await db.flush()
     await db.refresh(transfer)
-    return transfer
+    res = await db.execute(
+        select(Transfer).where(Transfer.id == transfer.id)
+        .options(
+             selectinload(Transfer.source_warehouse),
+             selectinload(Transfer.dest_warehouse),
+             selectinload(Transfer.lines).selectinload(TransferLine.product),
+             selectinload(Transfer.lines).selectinload(TransferLine.from_location),
+             selectinload(Transfer.lines).selectinload(TransferLine.to_location),
+             selectinload(Transfer.lines).selectinload(TransferLine.uom)
+         )
+    )
+    return res.scalar_one()
 
-
-@router.post("/{transfer_id}/validate", response_model=DocumentOut)
+@router.post("/{transfer_id}/validate", response_model=TransferOut)
 async def validate_transfer(
     transfer_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -113,4 +131,15 @@ async def validate_transfer(
     transfer.status = DocumentStatus.done
     await db.flush()
     await db.refresh(transfer)
-    return transfer
+    res = await db.execute(
+        select(Transfer).where(Transfer.id == transfer.id)
+        .options(
+             selectinload(Transfer.source_warehouse),
+             selectinload(Transfer.dest_warehouse),
+             selectinload(Transfer.lines).selectinload(TransferLine.product),
+             selectinload(Transfer.lines).selectinload(TransferLine.from_location),
+             selectinload(Transfer.lines).selectinload(TransferLine.to_location),
+             selectinload(Transfer.lines).selectinload(TransferLine.uom)
+         )
+    )
+    return res.scalar_one()

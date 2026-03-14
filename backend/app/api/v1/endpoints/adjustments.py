@@ -18,13 +18,13 @@ from app.core.dependencies import get_current_user, require_admin_manager, requi
 from app.models.adjustment import AdjustmentLine, StockAdjustment
 from app.models.auth import User
 from app.models.receipt import DocumentStatus
-from app.schemas.schemas import AdjustmentCreate, DocumentOut
+from app.schemas.schemas import AdjustmentCreate, DocumentOut, AdjustmentOut
 from app.services.inventory_service import InventoryService
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[DocumentOut])
+@router.get("/", response_model=list[AdjustmentOut])
 async def list_adjustments(
     status: str | None = None,
     warehouse_id: UUID | None = None,
@@ -33,7 +33,13 @@ async def list_adjustments(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    q = select(StockAdjustment).where(StockAdjustment.is_deleted.is_(False))
+    q = (select(StockAdjustment).where(StockAdjustment.is_deleted.is_(False))
+         .options(
+             selectinload(StockAdjustment.warehouse),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.product),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.location),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.uom)
+         ))
     if status:
         q = q.where(StockAdjustment.status == status)
     if warehouse_id:
@@ -67,10 +73,18 @@ async def create_adjustment(
 
     await db.flush()
     await db.refresh(adj)
-    return adj
+    res = await db.execute(
+        select(StockAdjustment).where(StockAdjustment.id == adj.id)
+        .options(
+             selectinload(StockAdjustment.warehouse),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.product),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.location),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.uom)
+         )
+    )
+    return res.scalar_one()
 
-
-@router.post("/{adjustment_id}/validate", response_model=DocumentOut)
+@router.post("/{adjustment_id}/validate", response_model=AdjustmentOut)
 async def validate_adjustment(
     adjustment_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -110,4 +124,13 @@ async def validate_adjustment(
     adj.status = DocumentStatus.done
     await db.flush()
     await db.refresh(adj)
-    return adj
+    res = await db.execute(
+        select(StockAdjustment).where(StockAdjustment.id == adj.id)
+        .options(
+             selectinload(StockAdjustment.warehouse),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.product),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.location),
+             selectinload(StockAdjustment.lines).selectinload(AdjustmentLine.uom)
+         )
+    )
+    return res.scalar_one()

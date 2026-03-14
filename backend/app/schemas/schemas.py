@@ -270,6 +270,95 @@ class DocumentOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+class ReceiptLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    product_id: UUID
+    location_id: UUID
+    quantity: float
+    received_qty: float
+    uom_id: UUID
+    cost_price: float | None = None
+    notes: str | None = None
+    product: ProductOut | None = None
+    location: LocationOut | None = None
+    uom: UomOut | None = None
+
+class ReceiptOut(DocumentOut):
+    vendor_name: str | None = None
+    warehouse_id: UUID
+    scheduled_date: date | None = None
+    notes: str | None = None
+    warehouse: WarehouseOut | None = None
+    lines: list[ReceiptLineOut] = []
+
+class DeliveryLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    product_id: UUID
+    location_id: UUID
+    quantity: float
+    delivered_qty: float | None = None
+    uom_id: UUID
+    sale_price: float | None = None
+    notes: str | None = None
+    product: ProductOut | None = None
+    location: LocationOut | None = None
+    uom: UomOut | None = None
+
+class DeliveryOrderOut(DocumentOut):
+    customer_name: str | None = None
+    warehouse_id: UUID
+    scheduled_date: date | None = None
+    shipping_address: str | None = None
+    notes: str | None = None
+    warehouse: WarehouseOut | None = None
+    lines: list[DeliveryLineOut] = []
+
+class TransferLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    product_id: UUID
+    from_location_id: UUID
+    to_location_id: UUID
+    quantity: float
+    transferred_qty: float | None = None
+    uom_id: UUID
+    notes: str | None = None
+    product: ProductOut | None = None
+    from_location: LocationOut | None = None
+    to_location: LocationOut | None = None
+    uom: UomOut | None = None
+
+class TransferOut(DocumentOut):
+    source_warehouse_id: UUID
+    dest_warehouse_id: UUID
+    scheduled_date: date | None = None
+    notes: str | None = None
+    source_warehouse: WarehouseOut | None = None
+    dest_warehouse: WarehouseOut | None = None
+    lines: list[TransferLineOut] = []
+
+class AdjustmentLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    product_id: UUID
+    location_id: UUID
+    counted_qty: float
+    system_qty: float
+    uom_id: UUID
+    notes: str | None = None
+    product: ProductOut | None = None
+    location: LocationOut | None = None
+    uom: UomOut | None = None
+
+class AdjustmentOut(DocumentOut):
+    warehouse_id: UUID
+    reason: str
+    notes: str | None = None
+    warehouse: WarehouseOut | None = None
+    lines: list[AdjustmentLineOut] = []
+
 
 # =====================================================================
 # Inventory Engine
@@ -279,13 +368,16 @@ class StockMovementOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     product_id: UUID
-    from_location_id: UUID | None
-    to_location_id: UUID | None
+    from_location_id: UUID | None = None
+    to_location_id: UUID | None = None
     quantity: float
     movement_type: str
     reference_type: str
     reference_id: UUID
     created_at: datetime
+    product: ProductOut | None = None
+    from_location: LocationOut | None = None
+    to_location: LocationOut | None = None
 
 
 class StockLevelOut(BaseModel):

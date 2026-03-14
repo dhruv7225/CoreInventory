@@ -231,7 +231,7 @@ export default function AdjustmentsPage() {
             </div>
             <div className="space-y-2">
               {form.lines.map((line, i) => {
-                const availableProductIds = new Set(availableStock.filter(s => s.quantity > 0).map(s => s.product_id));
+                const availableProductIds = new Set(availableStock.filter(s => s.on_hand_qty > 0).map(s => s.product_id));
                 const selectableProducts = (products || []).filter(p => availableProductIds.has(p.id));
 
                 return (

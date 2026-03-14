@@ -16,13 +16,13 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_staff_plus
 from app.models.auth import User
 from app.models.receipt import DocumentStatus, Receipt, ReceiptLine
-from app.schemas.schemas import DocumentOut, ReceiptCreate
+from app.schemas.schemas import DocumentOut, ReceiptCreate, ReceiptOut
 from app.services.inventory_service import InventoryService
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[DocumentOut])
+@router.get("/", response_model=list[ReceiptOut])
 async def list_receipts(
     status: str | None = None,
     warehouse_id: UUID | None = None,
@@ -31,7 +31,13 @@ async def list_receipts(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    q = select(Receipt).where(Receipt.is_deleted.is_(False))
+    q = (select(Receipt).where(Receipt.is_deleted.is_(False))
+         .options(
+             selectinload(Receipt.warehouse),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.product),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.location),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.uom)
+         ))
     if status:
         q = q.where(Receipt.status == status)
     if warehouse_id:
@@ -66,10 +72,19 @@ async def create_receipt(
 
     await db.flush()
     await db.refresh(receipt)
-    return receipt
+    # Eager load the required relationships before returning
+    res = await db.execute(
+        select(Receipt).where(Receipt.id == receipt.id)
+        .options(
+             selectinload(Receipt.warehouse),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.product),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.location),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.uom)
+         )
+    )
+    return res.scalar_one()
 
-
-@router.post("/{receipt_id}/validate", response_model=DocumentOut)
+@router.post("/{receipt_id}/validate", response_model=ReceiptOut)
 async def validate_receipt(
     receipt_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -104,4 +119,13 @@ async def validate_receipt(
     receipt.status = DocumentStatus.done
     await db.flush()
     await db.refresh(receipt)
-    return receipt
+    res = await db.execute(
+        select(Receipt).where(Receipt.id == receipt.id)
+        .options(
+             selectinload(Receipt.warehouse),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.product),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.location),
+             selectinload(Receipt.lines).selectinload(ReceiptLine.uom)
+         )
+    )
+    return res.scalar_one()

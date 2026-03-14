@@ -17,13 +17,13 @@ from app.core.dependencies import get_current_user, require_staff_plus
 from app.models.auth import User
 from app.models.delivery import DeliveryOrder, DeliveryOrderLine
 from app.models.receipt import DocumentStatus
-from app.schemas.schemas import DeliveryOrderCreate, DocumentOut
+from app.schemas.schemas import DeliveryOrderCreate, DocumentOut, DeliveryOrderOut
 from app.services.inventory_service import InventoryService
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[DocumentOut])
+@router.get("/", response_model=list[DeliveryOrderOut])
 async def list_deliveries(
     status: str | None = None,
     warehouse_id: UUID | None = None,
@@ -32,7 +32,13 @@ async def list_deliveries(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    q = select(DeliveryOrder).where(DeliveryOrder.is_deleted.is_(False))
+    q = (select(DeliveryOrder).where(DeliveryOrder.is_deleted.is_(False))
+         .options(
+             selectinload(DeliveryOrder.warehouse),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.product),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.location),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.uom)
+         ))
     if status:
         q = q.where(DeliveryOrder.status == status)
     if warehouse_id:
@@ -68,10 +74,18 @@ async def create_delivery(
 
     await db.flush()
     await db.refresh(delivery)
-    return delivery
+    res = await db.execute(
+        select(DeliveryOrder).where(DeliveryOrder.id == delivery.id)
+        .options(
+             selectinload(DeliveryOrder.warehouse),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.product),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.location),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.uom)
+         )
+    )
+    return res.scalar_one()
 
-
-@router.post("/{delivery_id}/validate", response_model=DocumentOut)
+@router.post("/{delivery_id}/validate", response_model=DeliveryOrderOut)
 async def validate_delivery(
     delivery_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -117,4 +131,13 @@ async def validate_delivery(
     delivery.status = DocumentStatus.done
     await db.flush()
     await db.refresh(delivery)
-    return delivery
+    res = await db.execute(
+        select(DeliveryOrder).where(DeliveryOrder.id == delivery.id)
+        .options(
+             selectinload(DeliveryOrder.warehouse),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.product),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.location),
+             selectinload(DeliveryOrder.lines).selectinload(DeliveryOrderLine.uom)
+         )
+    )
+    return res.scalar_one()
