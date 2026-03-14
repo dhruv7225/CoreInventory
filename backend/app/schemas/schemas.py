@@ -42,6 +42,15 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class TokenRefreshResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 # =====================================================================
 # Product
 # =====================================================================
@@ -100,6 +109,11 @@ class CategoryOut(BaseModel):
     name: str
     description: str | None
     parent_id: UUID | None
+
+
+class UomCreate(BaseModel):
+    name: str = Field(max_length=50)
+    symbol: str = Field(max_length=10)
 
 
 class UomOut(BaseModel):
