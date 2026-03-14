@@ -1,5 +1,8 @@
 """
 Inventory Engine endpoints: stock queries and movement history.
+Role protection:
+  - GET stock / GET movements → any authenticated user
+  - POST snapshots/refresh → admin or manager only
 """
 
 from uuid import UUID
@@ -9,8 +12,10 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user, require_admin_manager
+from app.models.auth import User
 from app.models.inventory import StockMovement
-from app.schemas.schemas import StockMovementOut, StockLevelOut
+from app.schemas.schemas import StockLevelOut, StockMovementOut
 from app.services.inventory_service import InventoryService
 
 router = APIRouter()
@@ -22,47 +27,43 @@ async def get_current_stock(
     warehouse_id: UUID | None = None,
     location_id: UUID | None = None,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
-    """
-    Get current stock levels derived from stock movements.
-    Filters by product, warehouse, or location.
-    """
+    """Current stock levels derived from movements. Filterable by product/warehouse/location."""
     q = text("""
         SELECT
             sub.product_id,
-            p.name AS product_name,
+            p.name  AS product_name,
             p.sku,
             sub.location_id,
-            l.name AS location_name,
+            l.name  AS location_name,
             l.warehouse_id,
-            w.name AS warehouse_name,
+            w.name  AS warehouse_name,
             SUM(sub.qty) AS on_hand_qty
         FROM (
-            SELECT product_id, to_location_id AS location_id, quantity AS qty
+            SELECT product_id, to_location_id   AS location_id,  quantity AS qty
             FROM stock_movements WHERE to_location_id IS NOT NULL
             UNION ALL
             SELECT product_id, from_location_id AS location_id, -quantity AS qty
             FROM stock_movements WHERE from_location_id IS NOT NULL
         ) sub
-        JOIN products p   ON p.id = sub.product_id
-        JOIN locations l  ON l.id = sub.location_id
+        JOIN products   p ON p.id = sub.product_id
+        JOIN locations  l ON l.id = sub.location_id
         JOIN warehouses w ON w.id = l.warehouse_id
-        WHERE 1=1
-            AND (:product_id IS NULL OR sub.product_id = :product_id)
-            AND (:warehouse_id IS NULL OR l.warehouse_id = :warehouse_id)
-            AND (:location_id IS NULL OR sub.location_id = :location_id)
+        WHERE (:product_id   IS NULL OR sub.product_id   = :product_id::uuid)
+          AND (:warehouse_id IS NULL OR l.warehouse_id   = :warehouse_id::uuid)
+          AND (:location_id  IS NULL OR sub.location_id  = :location_id::uuid)
         GROUP BY sub.product_id, sub.location_id, p.name, p.sku,
                  l.name, l.warehouse_id, w.name
         HAVING SUM(sub.qty) != 0
         ORDER BY p.name, w.name, l.name
     """)
     result = await db.execute(q, {
-        "product_id": str(product_id) if product_id else None,
+        "product_id":   str(product_id)   if product_id   else None,
         "warehouse_id": str(warehouse_id) if warehouse_id else None,
-        "location_id": str(location_id) if location_id else None,
+        "location_id":  str(location_id)  if location_id  else None,
     })
-    rows = result.mappings().all()
-    return [StockLevelOut(**dict(row)) for row in rows]
+    return [StockLevelOut(**dict(row)) for row in result.mappings().all()]
 
 
 @router.get("/movements", response_model=list[StockMovementOut])
@@ -74,6 +75,7 @@ async def list_movements(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     """List stock movements with filtering and pagination."""
     q = select(StockMovement)
@@ -94,8 +96,11 @@ async def list_movements(
 
 
 @router.post("/snapshots/refresh")
-async def refresh_snapshots(db: AsyncSession = Depends(get_db)):
-    """Rebuild stock_snapshots from stock_movements for fast lookups."""
+async def refresh_snapshots(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin_manager),
+):
+    """Rebuild stock_snapshots cache from movements. Admin/Manager only."""
     inv = InventoryService(db)
     count = await inv.refresh_snapshots()
     return {"message": f"Refreshed {count} snapshot rows"}

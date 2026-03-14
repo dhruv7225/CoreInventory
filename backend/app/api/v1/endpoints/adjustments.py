@@ -1,5 +1,9 @@
 """
-Stock Adjustment endpoints: create, list, confirm/validate.
+Stock Adjustment endpoints: create, list, validate.
+Role protection:
+  - GET → any authenticated user
+  - POST → warehouse_staff, manager, admin
+  - validate → admin or manager only (adjustments directly affect ledger)
 """
 
 from uuid import UUID
@@ -10,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.adjustment import StockAdjustment, AdjustmentLine
+from app.core.dependencies import get_current_user, require_admin_manager, require_staff_plus
+from app.models.adjustment import AdjustmentLine, StockAdjustment
+from app.models.auth import User
 from app.models.receipt import DocumentStatus
 from app.schemas.schemas import AdjustmentCreate, DocumentOut
 from app.services.inventory_service import InventoryService
@@ -25,6 +31,7 @@ async def list_adjustments(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     q = select(StockAdjustment).where(StockAdjustment.is_deleted.is_(False))
     if status:
@@ -37,7 +44,11 @@ async def list_adjustments(
 
 
 @router.post("/", response_model=DocumentOut, status_code=201)
-async def create_adjustment(payload: AdjustmentCreate, db: AsyncSession = Depends(get_db)):
+async def create_adjustment(
+    payload: AdjustmentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_staff_plus),
+):
     ref_result = await db.execute(text("SELECT fn_next_reference('ADJ')"))
     reference = ref_result.scalar_one()
 
@@ -46,17 +57,13 @@ async def create_adjustment(payload: AdjustmentCreate, db: AsyncSession = Depend
         warehouse_id=payload.warehouse_id,
         reason=payload.reason,
         notes=payload.notes,
-        created_by="00000000-0000-0000-0000-000000000000",  # TODO: from JWT
+        created_by=current_user.id,
     )
     db.add(adj)
     await db.flush()
 
     for line_data in payload.lines:
-        line = AdjustmentLine(
-            adjustment_id=adj.id,
-            **line_data.model_dump(),
-        )
-        db.add(line)
+        db.add(AdjustmentLine(adjustment_id=adj.id, **line_data.model_dump()))
 
     await db.flush()
     await db.refresh(adj)
@@ -64,10 +71,14 @@ async def create_adjustment(payload: AdjustmentCreate, db: AsyncSession = Depend
 
 
 @router.post("/{adjustment_id}/validate", response_model=DocumentOut)
-async def validate_adjustment(adjustment_id: UUID, db: AsyncSession = Depends(get_db)):
+async def validate_adjustment(
+    adjustment_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_manager),  # stricter: managers only
+):
     """
-    Confirm an adjustment and generate ADJUSTMENT stock movements.
-    Creates positive or negative movements based on difference_qty per line.
+    Confirm adjustment → generate +/- ADJUSTMENT movements (draft → done).
+    Restricted to admin/manager since it directly corrects the stock ledger.
     """
     result = await db.execute(
         select(StockAdjustment)
@@ -78,7 +89,10 @@ async def validate_adjustment(adjustment_id: UUID, db: AsyncSession = Depends(ge
     if not adj:
         raise HTTPException(status_code=404, detail="Adjustment not found")
     if adj.status != DocumentStatus.draft:
-        raise HTTPException(status_code=400, detail=f"Cannot validate adjustment in '{adj.status.value}' status")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot validate an adjustment with status '{adj.status.value}'",
+        )
 
     inv = InventoryService(db)
     for line in adj.lines:
@@ -90,7 +104,7 @@ async def validate_adjustment(adjustment_id: UUID, db: AsyncSession = Depends(ge
             location_id=line.location_id,
             difference_qty=diff,
             adjustment_id=adj.id,
-            created_by=adj.created_by,
+            created_by=current_user.id,
         )
 
     adj.status = DocumentStatus.done

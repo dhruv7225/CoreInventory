@@ -7,6 +7,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.models.auth import User
 from app.models.product import Product
 from app.models.warehouse import Warehouse
 from app.models.receipt import Receipt, DocumentStatus
@@ -19,7 +21,10 @@ router = APIRouter()
 
 
 @router.get("/kpis", response_model=DashboardKPIs)
-async def get_dashboard_kpis(db: AsyncSession = Depends(get_db)):
+async def get_dashboard_kpis(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     """Aggregate KPIs for the dashboard."""
 
     # Total active products
@@ -106,7 +111,10 @@ async def get_dashboard_kpis(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/low-stock-alerts", response_model=list[LowStockAlertOut])
-async def get_low_stock_alerts(db: AsyncSession = Depends(get_db)):
+async def get_low_stock_alerts(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     """Products where current stock <= reorder rule min_stock."""
     result = await db.execute(text("""
         SELECT

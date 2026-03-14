@@ -1,5 +1,8 @@
 """
-Internal Transfer endpoints: create, list, confirm/validate.
+Internal Transfer endpoints: create, list, validate.
+Role protection:
+  - GET → any authenticated user
+  - POST / validate → warehouse_staff, manager, admin
 """
 
 from uuid import UUID
@@ -10,9 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.transfer import Transfer, TransferLine
+from app.core.dependencies import get_current_user, require_staff_plus
+from app.models.auth import User
 from app.models.receipt import DocumentStatus
-from app.schemas.schemas import TransferCreate, DocumentOut
+from app.models.transfer import Transfer, TransferLine
+from app.schemas.schemas import DocumentOut, TransferCreate
 from app.services.inventory_service import InventoryService
 
 router = APIRouter()
@@ -24,6 +29,7 @@ async def list_transfers(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     q = select(Transfer).where(Transfer.is_deleted.is_(False))
     if status:
@@ -34,7 +40,11 @@ async def list_transfers(
 
 
 @router.post("/", response_model=DocumentOut, status_code=201)
-async def create_transfer(payload: TransferCreate, db: AsyncSession = Depends(get_db)):
+async def create_transfer(
+    payload: TransferCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_staff_plus),
+):
     ref_result = await db.execute(text("SELECT fn_next_reference('TRF')"))
     reference = ref_result.scalar_one()
 
@@ -44,17 +54,13 @@ async def create_transfer(payload: TransferCreate, db: AsyncSession = Depends(ge
         dest_warehouse_id=payload.dest_warehouse_id,
         scheduled_date=payload.scheduled_date,
         notes=payload.notes,
-        created_by="00000000-0000-0000-0000-000000000000",  # TODO: from JWT
+        created_by=current_user.id,
     )
     db.add(transfer)
     await db.flush()
 
     for line_data in payload.lines:
-        line = TransferLine(
-            transfer_id=transfer.id,
-            **line_data.model_dump(),
-        )
-        db.add(line)
+        db.add(TransferLine(transfer_id=transfer.id, **line_data.model_dump()))
 
     await db.flush()
     await db.refresh(transfer)
@@ -62,10 +68,12 @@ async def create_transfer(payload: TransferCreate, db: AsyncSession = Depends(ge
 
 
 @router.post("/{transfer_id}/validate", response_model=DocumentOut)
-async def validate_transfer(transfer_id: UUID, db: AsyncSession = Depends(get_db)):
-    """
-    Confirm a transfer and generate INTERNAL_TRANSFER stock movements.
-    """
+async def validate_transfer(
+    transfer_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_staff_plus),
+):
+    """Confirm transfer → check source stock → generate INTERNAL_TRANSFER movements."""
     result = await db.execute(
         select(Transfer)
         .where(Transfer.id == transfer_id)
@@ -75,17 +83,19 @@ async def validate_transfer(transfer_id: UUID, db: AsyncSession = Depends(get_db
     if not transfer:
         raise HTTPException(status_code=404, detail="Transfer not found")
     if transfer.status != DocumentStatus.draft:
-        raise HTTPException(status_code=400, detail=f"Cannot validate transfer in '{transfer.status.value}' status")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot validate a transfer with status '{transfer.status.value}'",
+        )
 
     inv = InventoryService(db)
 
-    # Check stock at source locations
     for line in transfer.lines:
         available = await inv.get_stock_at_location(line.product_id, line.from_location_id)
         if available < float(line.quantity):
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient stock for product {line.product_id} at source location. "
+                detail=f"Insufficient stock for product {line.product_id} at source. "
                        f"Available: {available}, Requested: {line.quantity}",
             )
 
@@ -96,7 +106,7 @@ async def validate_transfer(transfer_id: UUID, db: AsyncSession = Depends(get_db
             to_location_id=line.to_location_id,
             quantity=float(line.quantity),
             transfer_id=transfer.id,
-            created_by=transfer.created_by,
+            created_by=current_user.id,
         )
         line.transferred_qty = line.quantity
 
