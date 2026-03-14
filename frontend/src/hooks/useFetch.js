@@ -1,33 +1,33 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import api from '../api/axiosClient';
 
+/**
+ * useFetch wrapper mapped to @tanstack/react-query
+ * Helps migrate custom hooks easily to the standard fetcher.
+ */
 export default function useFetch(url, options = {}) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
   const { params, skip = false } = options;
 
-  const fetchData = useCallback(async () => {
-    if (skip) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get(url, { params });
-      setData(res.data);
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [url, JSON.stringify(params), skip]);
+  const queryKey = [url, params].filter(Boolean);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const {
+    data,
+    isLoading: loading,
+    error,
+    refetch
+  } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const { data } = await api.get(url, { params });
+      return data;
+    },
+    enabled: !skip,
+  });
 
-  return { data, loading, error, refetch: fetchData };
+  return {
+    data,
+    loading,
+    error: error?.response?.data?.detail || error?.message || null,
+    refetch,
+  };
 }

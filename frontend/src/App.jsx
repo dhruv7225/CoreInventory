@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './store/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -8,7 +8,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 
-// Feature pages
+import UnauthorizedPage from './pages/auth/UnauthorizedPage';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import ProductsPage from './pages/products/ProductsPage';
 import WarehousesPage from './pages/warehouses/WarehousesPage';
@@ -29,24 +29,25 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
 
+          <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
           {/* Protected routes */}
-          <Route
-            element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
-            }
-          >
+          <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+            {/* Shared routes (All authenticated users) */}
             <Route path="/" element={<DashboardPage />} />
             <Route path="/products" element={<ProductsPage />} />
-            <Route path="/warehouses" element={<WarehousesPage />} />
-            <Route path="/receipts" element={<ReceiptsPage />} />
-            <Route path="/deliveries" element={<DeliveriesPage />} />
-            <Route path="/transfers" element={<TransfersPage />} />
-            <Route path="/adjustments" element={<AdjustmentsPage />} />
             <Route path="/inventory/stock" element={<StockPage />} />
             <Route path="/inventory/movements" element={<MovementsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+
+            {/* Operations & Warehouses (Admin & Manager only) */}
+            <Route element={<ProtectedRoute allowedRoles={['admin', 'manager']}><div className="contents"><Outlet /></div></ProtectedRoute>}>
+              <Route path="/receipts" element={<ReceiptsPage />} />
+              <Route path="/deliveries" element={<DeliveriesPage />} />
+              <Route path="/transfers" element={<TransfersPage />} />
+              <Route path="/adjustments" element={<AdjustmentsPage />} />
+              <Route path="/warehouses" element={<WarehousesPage />} />
+            </Route>
           </Route>
 
           {/* Fallback */}

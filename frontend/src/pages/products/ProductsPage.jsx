@@ -5,6 +5,7 @@ import DataTable from '../../components/DataTable';
 import StatusBadge from '../../components/StatusBadge';
 import FormModal from '../../components/FormModal';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { useAuth } from '../../store/AuthContext';
 import toast from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlinePencilSquare, HiOutlineTrash } from 'react-icons/hi2';
 
@@ -17,6 +18,7 @@ export default function ProductsPage() {
     const [form, setForm] = useState(emptyProduct);
     const [submitting, setSubmitting] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const { hasRole } = useAuth();
 
     const { data: productsRaw, loading, refetch } = useFetch('/products/');
     const { data: categories } = useFetch('/products/categories/');
@@ -106,9 +108,11 @@ export default function ProductsPage() {
                     <h1 className="text-2xl font-bold text-slate-800">Products</h1>
                     <p className="text-sm text-slate-500 mt-1">Manage your product catalog</p>
                 </div>
-                <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors">
-                    <HiOutlinePlus className="w-4 h-4" /> Add Product
-                </button>
+                {hasRole(['admin', 'manager']) && (
+                    <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors">
+                        <HiOutlinePlus className="w-4 h-4" /> Add Product
+                    </button>
+                )}
             </div>
 
             <DataTable
@@ -119,7 +123,7 @@ export default function ProductsPage() {
                 onSearchChange={setSearch}
                 searchPlaceholder="Search by name or SKU..."
                 emptyMessage="No products yet. Create your first product."
-                actions={(row) => (
+                actions={(row) => hasRole(['admin', 'manager']) && (
                     <>
                         <button onClick={(e) => { e.stopPropagation(); openEdit(row); }} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
                             <HiOutlinePencilSquare className="w-4 h-4" />

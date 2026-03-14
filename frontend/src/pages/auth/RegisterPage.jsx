@@ -13,6 +13,7 @@ export default function RegisterPage() {
     full_name: '',
     password: '',
     confirmPassword: '',
+    role: 'viewer',
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,6 +40,7 @@ export default function RegisterPage() {
         username: form.username,
         full_name: form.full_name,
         password: form.password,
+        role: form.role,
       });
       toast.success('Account created! Please sign in.');
       navigate('/login');
@@ -83,6 +85,14 @@ export default function RegisterPage() {
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1.5">Confirm Password</label>
               <input type="password" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} placeholder="Repeat password" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Role</label>
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={`${inputCls} appearance-none`}>
+                <option value="manager" className="text-slate-800">Manager</option>
+                <option value="warehouse_staff" className="text-slate-800">Warehouse Staff</option>
+                <option value="viewer" className="text-slate-800">Viewer</option>
+              </select>
             </div>
             <button
               type="submit"
